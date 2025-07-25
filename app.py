@@ -127,7 +127,7 @@ def main():
         st.subheader("Select metric(s) to chart")
         metrics = st.multiselect(
             "Metrics", options=summary_table.columns.tolist(),
-            default=['Total Territory Points']
+            default=['Combat Waves Sum', 'Combat Attempts Sum']
         )
         if selected_players and metrics:
             history_records = []
