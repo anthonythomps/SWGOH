@@ -1,180 +1,189 @@
 # app.py
 import streamlit as st
 import pandas as pd
-import glob, os
+import glob
+import os
+import json
+import re
 from datetime import datetime
 import altair as alt
 
-# Cache loading of all TB files
-@st.cache_data
-def load_all_data():
-    """Load and sort all TB CSV files by date from the data folder."""
-    files = glob.glob(os.path.join('data', 'tb_data_*.csv'))
-    def extract_date(fp):
-        name = os.path.basename(fp)
-        date_str = name.replace('tb_data_', '').replace('.csv', '')
-        return datetime.strptime(date_str, '%d%m%y')
-    sorted_files = sorted(files, key=extract_date)
-    dfs = [pd.read_csv(fp) for fp in sorted_files]
-    dates = [extract_date(fp) for fp in sorted_files]
-    return dates, dfs
+# Load friendly name mapping
+MAP_STAT_FILE = 'data/map_stat_names.json'
+try:
+    with open(MAP_STAT_FILE) as mf:
+        MAP_STAT_NAMES = json.load(mf)
+except FileNotFoundError:
+    MAP_STAT_NAMES = {}
 
+# Helper to extract date from filename
+def extract_date(fp):
+    name = os.path.basename(fp)
+    m = re.search(r'tb_data_(\d{6})', name)
+    return datetime.strptime(m.group(1), '%d%m%y') if m else None
+
+# Cache JSON loading
 @st.cache_data
-def load_latest_data(dates, dfs):
-    """Return the latest TB DataFrame."""
-    return dfs[-1]
+def load_all_json():
+    """Load all TB JSON files and their dates."""
+    files = glob.glob(os.path.join('data', 'tb_data_*.json'))
+    files = [f for f in files if extract_date(f)]
+    files.sort(key=extract_date)
+    jsons = []
+    dates = []
+    for fp in files:
+        dates.append(extract_date(fp))
+        with open(fp) as f:
+            jsons.append(json.load(f))
+    return dates, jsons
 
 # Main function
 def main():
-    # Page config
     st.set_page_config(page_title="SWGOH", page_icon="🔥", layout="wide")
-    st.title("TB Data Dashboard")
+    st.title("Guild Data")
 
-    # Load all run data
-    dates, dfs = load_all_data()
-    num_runs = st.sidebar.number_input(
-        "Number of TB runs to include", min_value=1,
-        max_value=len(dfs), value=5, step=1
-    )
+    # Load JSON data
+    json_dates, jsons = load_all_json()
+    if not jsons:
+        st.warning("No TB JSON files found in data folder.")
+        return
 
-    # Sidebar: select phases for sums
-    st.sidebar.header("Phase Selection for Sums")
-    phase_options = list(range(1, 7))  # Phases 1 through 6
-    selected_phases = st.sidebar.multiselect(
-        "Phases to include in Waves and Attempts sums",
-        phase_options, default=phase_options
-    )
+    # Use the latest run
+    jb = jsons[-1]
+    # Map playerId to playerName
+    members = jb.get('member', [])
+    id_to_name = {m['playerId']: m['playerName'] for m in members}
 
-    # Determine last runs
-    last_dates = dates[-num_runs:]
-    last_dfs = dfs[-num_runs:]
+    # Extract and normalize currentStat
+    stat_list = jb.get('currentStat', [])
+    stat_df = pd.json_normalize(stat_list, 'playerStat', ['mapStatId']) if stat_list else pd.DataFrame()
+    if stat_df.empty:
+        st.info("No currentStat data to display.")
+        return
 
-    # Latest run for summary
-    df_latest = load_latest_data(dates, dfs)
+    # Process stats
+    stat_df['score'] = stat_df['score'].astype(int)
+    stat_df['Player'] = stat_df['memberId'].map(id_to_name)
+    stat_df['StatName'] = stat_df['mapStatId'].map(lambda k: MAP_STAT_NAMES.get(k, k))
 
-    # Compute dynamic Waves and Attempts sums based on selected phases
-    wave_cols = [f'P{p} Waves' for p in selected_phases if f'P{p} Waves' in df_latest.columns]
-    attempt_cols = [f'P{p} Combat Attempts' for p in selected_phases if f'P{p} Combat Attempts' in df_latest.columns]
-    df_latest['Combat Waves Sum'] = df_latest[wave_cols].sum(axis=1)
-    df_latest['Combat Attempts Sum'] = df_latest[attempt_cols].sum(axis=1)
+    # Pivot to wide format
+    pivot_df = stat_df.pivot_table(
+        index='Player',
+        columns='StatName',
+        values='score',
+        aggfunc='sum'
+    ).fillna(0).astype(int)
 
-    # Compute sum of special attempts
-    special_cols = [c for c in df_latest.columns if 'Special Attempts' in c]
-    df_latest['Special Attempts Sum'] = df_latest[special_cols].sum(axis=1)
-
-    # Summary table uses dynamic sums
-    summary_table = df_latest[[
-        'Name', 'Total Territory Points', 'Platoon Units',
-        'Combat Waves Sum', 'Combat Attempts Sum',
-        'Rogue Actions', 'Special Attempts Sum'
-    ]]
-
-    # Sort summary by Total Territory Points descending
-    summary_table = summary_table.sort_values('Total Territory Points', ascending=False)
-
-    # Apply default formatting for numeric fields
-    fmt = {
+        # Define summary metrics and formatting
+    summary_metrics = {
+        'Total GP Deployed': '{:,.0f}',
         'Total Territory Points': '{:,.0f}',
-        'Platoon Units': '{:,.0f}',
-        'Combat Waves Sum': '{:,.0f}',
-        'Combat Attempts Sum': '{:,.0f}',
-        'Rogue Actions': '{:,.0f}',
-        'Special Attempts Sum': '{:,.0f}'
+        'Total Mission Attempts': '{:,.0f}',
+        'Total Platoons Donated': '{:,.0f}',
+        'Total Waves Completed': '{:,.0f}',
+        'Total Special Mission Attempts': '{:,.0f}',
+        'Total Special Missions Completed': '{:,.0f}'
     }
-    styled_summary = summary_table.style.format(fmt)
 
-    # Tabs
-    tab_overall, tab_history = st.tabs(["Overall", "Player History"])
+    # Calculate additional fields P3-P6
+    # Friendly names for attempts and waves from map stat mapping
+    attempt_names = [f"Mission Attempt Round {p}" for p in range(3,7)]
+    wave_names = [f"Waves Completed Round {p}" for p in range(3,7)]
+    # Sum across those columns if present
+    pivot_df['Total Attempts P3-P6'] = pivot_df[[c for c in attempt_names if c in pivot_df.columns]].sum(axis=1)
+    pivot_df['Total Completed Waves P3-P6'] = pivot_df[[c for c in wave_names if c in pivot_df.columns]].sum(axis=1)
 
-    with tab_overall:
-        st.header("Player Summary Table (Latest TB)")
-        st.dataframe(styled_summary,hide_index=True)
+        # Build summary DataFrame
+    summary_fields = [f for f in summary_metrics if f in pivot_df.columns] + ['Total Attempts P3-P6', 'Total Completed Waves P3-P6']
+    summary_df = pivot_df[summary_fields].copy()
+    summary_df.index.name = 'Player'
 
-        # Detailed view
-        selected_player = st.selectbox(
-            "Select a player for detailed stats",
-            sorted(summary_table['Name'].tolist())
-        )
-        if selected_player:
-            player_row = df_latest[df_latest['Name'] == selected_player]
-            st.subheader("Select fields to display")
-            available = player_row.columns.tolist()
-            defaults = [
-                'Name', 'Total Territory Points', 'Platoon Units',
-                'Combat Waves Sum', 'Combat Attempts Sum',
-                'Rogue Actions', 'Special Attempts Sum'
-            ]
-            fields = st.multiselect(
-                "Fields", options=available,
-                default=[f for f in defaults if f in available]
-            )
-            st.subheader(f"Detailed Stats: {selected_player}")
-            if fields:
-                detail_df = player_row[fields]
-                # Apply formatting to numeric columns
-                detail_fmt = {col: fmt[col] for col in fields if col in fmt}
-                st.dataframe(detail_df.style.format(detail_fmt),hide_index=True)
+    # Default sort configuration
+    sort_field = 'Total Territory Points'
+    ascending = False
+    if sort_field in summary_df.columns:
+        summary_df = summary_df.sort_values(sort_field, ascending=ascending)
+
+        # Apply formatting
+    summary_styled = summary_df.style.format(summary_metrics)
+
+    # Compute completed mission status grid
+    # Identify completed and attempted mission mapStatIds
+    completed_keys = [k for k in MAP_STAT_NAMES.keys() if k.startswith('covert_complete_mission')]
+    attempted_keys = [k for k in MAP_STAT_NAMES.keys() if k.startswith('covert_round_attempted_mission')]
+    # Build status DataFrame: 1=complete, -1=attempted but not complete, 0=not attempted
+    status_dict = {}
+    for player in pivot_df.index:
+        row_dict = {}
+        for key in completed_keys:
+            name = MAP_STAT_NAMES.get(key, key)
+            completed_count = pivot_df.at[player, name] if name in pivot_df.columns else 0
+            # identify corresponding attempts by base
+            base = key.replace('covert_complete_mission_', '')
+            attempt_names = [MAP_STAT_NAMES.get(a) for a in attempted_keys if base in a]
+            attempted_count = sum(pivot_df.at[player, an] for an in attempt_names if an in pivot_df.columns)
+            if completed_count > 0:
+                status = 1
+            elif attempted_count > 0:
+                status = -1
             else:
-                st.warning("Select at least one field.")
+                status = 0
+            row_dict[name] = status
+        status_dict[player] = row_dict
+    status_df = pd.DataFrame.from_dict(status_dict, orient='index').fillna(0).astype(int)
+    status_df.index.name = 'Player'
+    # Style grid: hide values, color backgrounds
+    def color_map(val):
+        if val == 1:
+            return 'background-color: green; color: transparent'
+        elif val == -1:
+            return 'background-color: red; color: transparent'
+        else:
+            return 'background-color: orange; color: transparent'
+    styled_status = status_df.style.applymap(color_map)
 
-    with tab_history:
-        st.header(f"Player History over last {num_runs} TBs")
-        # Multi-select players
-        players_sorted = sorted(df_latest['Name'].tolist())
-        selected_players = st.multiselect(
-            "Select players for history", players_sorted
-        )
-        st.subheader("Select metric(s) to chart")
+    # Tabs for Guild Data and Player History
+    tab1, tab2 = st.tabs(["Guild Data", "Player History"])
+
+    with tab1:
+        st.subheader("Aggregated Player Summary")
+        st.dataframe(summary_styled, hide_index=False)
+
+        st.subheader("Completed Missions by Player")
+        st.dataframe(styled_status, hide_index=False)
+
+    with tab2:
+        st.header("Player History")
+        players = st.multiselect("Select player(s)", list(pivot_df.index))
         metrics = st.multiselect(
-            "Metrics", options=summary_table.columns.tolist(),
-            default=['Combat Waves Sum', 'Combat Attempts Sum']
+            "Select fields to display", summary_fields,
+            default=[sort_field] if sort_field in summary_fields else []
         )
-        if selected_players and metrics:
+        if players and metrics:
             history_records = []
-            for date, hist_df in zip(last_dates, last_dfs):
-                # Dynamic sums per historical run
-                wc = [f'P{p} Waves' for p in selected_phases if f'P{p} Waves' in hist_df.columns]
-                ac = [f'P{p} Combat Attempts' for p in selected_phases if f'P{p} Combat Attempts' in hist_df.columns]
-                hist_df['Combat Waves Sum'] = hist_df[wc].sum(axis=1)
-                hist_df['Combat Attempts Sum'] = hist_df[ac].sum(axis=1)
-                hist_df['Special Attempts Sum'] = hist_df[
-                    [c for c in hist_df.columns if 'Special Attempts' in c]
-                ].sum(axis=1)
-                for player in selected_players:
-                    row = hist_df[hist_df['Name'] == player]
-                    if not row.empty:
-                        for metric in metrics:
-                            history_records.append({
-                                'Date': date,
-                                'Player': player,
-                                'Metric': metric,
-                                'Value': row.iloc[0][metric]
-                            })
-            history_df = pd.DataFrame(history_records)
-            history_df = history_df.sort_values('Date')
-
-            # Chart with Altair
-            chart = alt.Chart(history_df).mark_line(point=True).encode(
-                x=alt.X('Date:T', title='Start Date', axis=alt.Axis(format='%d-%m-%y')),
-                y=alt.Y('Value:Q', title='Metric Value'),
-                color=alt.Color('Player:N', title='Player'),
-                strokeDash=alt.StrokeDash('Metric:N', title='Metric')
+            for date, jb_run in zip(json_dates, jsons):
+                df_run = pd.json_normalize(jb_run.get('currentStat', []), 'playerStat', ['mapStatId']) if jb_run.get('currentStat', []) else pd.DataFrame()
+                if df_run.empty:
+                    continue
+                df_run['score'] = df_run['score'].astype(int)
+                df_run['Player'] = df_run['memberId'].map(id_to_name)
+                df_run['StatName'] = df_run['mapStatId'].map(lambda k: MAP_STAT_NAMES.get(k, k))
+                pivot_run = df_run.pivot_table(
+                    index='Player', columns='StatName', values='score', aggfunc='sum'
+                ).fillna(0).astype(int)
+                for pl in players:
+                    for m in metrics:
+                        val = pivot_run.at[pl, m] if pl in pivot_run.index and m in pivot_run.columns else 0
+                        history_records.append({'Date': date, 'Player': pl, 'Metric': m, 'Value': val})
+            hist_df = pd.DataFrame(history_records).sort_values('Date')
+            chart = alt.Chart(hist_df).mark_line(point=True).encode(
+                x=alt.X('Date:T', title='Date', axis=alt.Axis(format='%d-%m-%y')),
+                y=alt.Y('Value:Q', title='Value'),
+                color='Player:N', strokeDash='Metric:N'
             ).properties(width=700, height=400)
             st.altair_chart(chart)
-
-            # Display table
-            display_df = history_df.copy()
-            display_df['Date'] = display_df['Date'].dt.strftime('%d-%m-%y')
-            # Format numeric columns for display table
-            disp_fmt = {'Value': '{:,.0f}'}
-            st.dataframe(display_df.style.format({**{'Date': '{}'}, **disp_fmt}),hide_index=True)
         else:
-            st.info("Select at least one player and one metric.")
+            st.info("Select at least one player and one field.")
 
-# Legacy single-file loader (unused)
-
-def load_data():
-    return pd.read_csv('data/tb_data_070725.csv')
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
