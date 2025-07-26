@@ -171,6 +171,14 @@ def main():
                 pivot_run = df_run.pivot_table(
                     index='Player', columns='StatName', values='score', aggfunc='sum'
                 ).fillna(0).astype(int)
+                # Calculate P3-P6 totals for this historical run
+                attempt_names = [f"Mission Attempt Round {p}" for p in range(3,7)]
+                wave_names = [f"Waves Completed Round {p}" for p in range(3,7)]
+                if attempt_names:
+                    pivot_run['Total Attempts P3-P6'] = pivot_run[[c for c in attempt_names if c in pivot_run.columns]].sum(axis=1)
+                if wave_names:
+                    pivot_run['Total Completed Waves P3-P6'] = pivot_run[[c for c in wave_names if c in pivot_run.columns]].sum(axis=1)
+                pivot_run = pivot_run.fillna(0).astype(int)
                 for pl in players:
                     for m in metrics:
                         val = pivot_run.at[pl, m] if pl in pivot_run.index and m in pivot_run.columns else 0
