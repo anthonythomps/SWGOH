@@ -76,7 +76,6 @@ def main():
 
         # Define summary metrics and formatting
     summary_metrics = {
-        'Total GP Deployed': '{:,.0f}',
         'Total Territory Points': '{:,.0f}',
         'Total Mission Attempts': '{:,.0f}',
         'Total Platoons Donated': '{:,.0f}',
@@ -135,21 +134,32 @@ def main():
     # Style grid: hide values, color backgrounds
     def color_map(val):
         if val == 1:
-            return 'background-color: green; color: transparent'
+            return 'background-color: #66be25; color: transparent'
         elif val == -1:
-            return 'background-color: red; color: transparent'
+            return 'background-color: #be4525; color: transparent'
         else:
-            return 'background-color: orange; color: transparent'
+            return 'background-color: #f59406; color: transparent'
     styled_status = status_df.style.applymap(color_map)
 
     # Tabs for Guild Data and Player History
     tab1, tab2 = st.tabs(["Guild Data", "Player History"])
 
+    # Page Setup
+    st.markdown(
+    """
+    <style>
+      [class^="stMainBlockContainer"] {
+        padding: 2.5rem !important;
+      }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
     with tab1:
-        st.subheader("Aggregated Player Summary")
+        st.subheader("Guild Summary")
         st.dataframe(summary_styled, hide_index=False)
 
-        st.subheader("Completed Missions by Player")
+        st.subheader("Special Mission Status")
         st.dataframe(styled_status, hide_index=False)
 
     with tab2:
