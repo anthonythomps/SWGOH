@@ -107,11 +107,6 @@ def main():
     avg_styled = (
         avg_df.style
              .format(avg_format)
-             .set_properties(**{'background-color': '#eeeee4'})
-             .set_table_styles([
-                 {'selector': 'th.row_heading', 'props': [('background-color', '#eeeee4')]},
-                 {'selector': 'td.row_heading', 'props': [('background-color', '#eeeee4')]}]
-             )
     )
 
     # Status grid
