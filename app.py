@@ -140,28 +140,34 @@ def main():
     tab1, tab2 = st.tabs(["Guild Data", "Player History"])
     st.markdown("""<style>[class^=\"stMainBlockContainer\"] {padding: 2.5rem !important;}</style>""", unsafe_allow_html=True)
 
-    # ---- Guild Data Tab ----
+        # ---- Guild Data Tab ----
     with tab1:
         st.subheader("Guild Summary")
-                # Player filter dropdown
-        player_filter = st.selectbox(
-            "Filter to a specific player (or All)",
+        # Player filter multiselect
+        player_filter = st.multiselect(
+            "Filter to specific player(s) (or All)",
             options=["All"] + sorted(summary_df.index.tolist()),
-            index=0
+            default=["All"]
         )
         # Display guild average always
         st.dataframe(avg_styled, hide_index=False)
 
-        # Filter summary and status based on player_filter
-        if player_filter != "All":
-            filtered_summary = summary_df.loc[[player_filter]]
-            filtered_status = status_df.loc[[player_filter]]
-            st.dataframe(filtered_summary.style.format(summary_metrics), hide_index=False)
+        # Determine which players to show
+        if "All" in player_filter or not player_filter:
+            display_summary = summary_df
+            display_status = status_df
+            summary_style = summary_styled
+            status_style = styled_status
         else:
-            st.dataframe(summary_styled, hide_index=False)
+            display_summary = summary_df.loc[player_filter]
+            display_status = status_df.loc[player_filter]
+            summary_style = display_summary.style.format(summary_metrics)
+            status_style = display_status.style.applymap(color_map)
 
+        # Show summary table
+        st.dataframe(summary_style, hide_index=False)
         # Download summary
-        csv_summary = (filtered_summary if player_filter != "All" else summary_df).to_csv(index=True).encode()
+        csv_summary = display_summary.to_csv(index=True).encode()
         st.download_button(
             label="Download Guild Summary as CSV",
             data=csv_summary,
@@ -170,12 +176,10 @@ def main():
         )
 
         st.subheader("Special Mission Status")
-        # Show filtered or full status
-        if player_filter != "All":
-            st.dataframe(filtered_status.style.applymap(color_map), hide_index=False)
-        else:
-            st.dataframe(styled_status, hide_index=False)
-        csv_mission = (filtered_status if player_filter != "All" else status_df).to_csv(index=True).encode()
+        # Show status table
+        st.dataframe(status_style, hide_index=False)
+        # Download status
+        csv_mission = display_status.to_csv(index=True).encode()
         st.download_button(
             label="Download Special Mission Status as CSV",
             data=csv_mission,
