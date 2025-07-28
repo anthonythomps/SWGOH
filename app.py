@@ -78,8 +78,8 @@ def main():
     summary_metrics = {
         'Total Territory Points': '{:,.0f}',
         'Total Mission Attempts': '{:,.0f}',
-        'Total Platoons Donated': '{:,.0f}',
         'Total Waves Completed': '{:,.0f}',
+        'Total Platoons Donated': '{:,.0f}',
         'Total Special Mission Attempts': '{:,.0f}',
         'Total Special Missions Completed': '{:,.0f}'
     }
