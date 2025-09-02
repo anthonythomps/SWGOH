@@ -118,7 +118,7 @@
   },
   "Zeffo": {
     "Zone": "Zone 3",
-    "Alignment": "Light Side",
+    "Alignment": "Light Side (Bonus)",
     "1-star": 143589583,
     "2-star": 229743333,
     "3-star": 287179167,
@@ -170,7 +170,7 @@
   },
   "Mandalore": {
     "Zone": "Zone 4",
-    "Alignment": "Mixed",
+    "Alignment": "Mixed (Bonus)",
     "1-star": 197748650,
     "2-star": 316397840,
     "3-star": 396497300,

@@ -90,18 +90,6 @@ def main():
 
     # ---- Tab 1: Guild Data ----
     with tab1:
-        st.subheader("Current Status:")
-        # compute total achieved stars across all planets
-        total_stars = sum(star_str.count("★") for _, _, _, star_str in status)
-        st.markdown(f"**Total Stars:** {total_stars}/56", unsafe_allow_html=True)
-
-        for planet, alignment, score, star_str in status:
-            st.markdown(
-                f"**{planet}** → {alignment} → {score:,} → "
-                f"<span style='color:gold'>{star_str}</span>",
-                unsafe_allow_html=True
-            )
-
         st.subheader("Guild Summary")
 
         # Normalize stats for guild summary
