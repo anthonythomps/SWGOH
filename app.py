@@ -88,7 +88,7 @@ def main():
     # Create three tabs
     tab1, tab2, tab3 = st.tabs(["Guild Data", "Player History", "Edit Current TB"])
 
-    # ---- Tab 1: Guild Data ----
+    # ---- Tab 1: Guild Datas ----
     with tab1:
         st.subheader("Guild Summary")
 
